@@ -123,11 +123,24 @@ python3 ~/.workbuddy/ai-watchdog/test_watchdog.py         # 判定逻辑回归�
 - **为什么检测引擎只读**：以 `mode=ro` 打开数据库，从设计上杜绝「监工自己把任务改坏」的可能。
   补跑动作由上层 AI 通过正规接口新建任务完成。
 
+## 跨平台支持
+
+| 能力 | macOS | Windows | Linux |
+|---|---|---|---|
+| 扫描 / 判定 / 诊断包（`scan`、`brief`） | ✅ | ✅ | ✅ |
+| 配乐审计（`music_audit.py`） | ✅ | ✅ | ✅ 需自备 ffmpeg/ffprobe |
+| 响铃 + 语音告警（`--alert`） | ✅ afplay + say + 通知中心 | ✅ winsound + 系统语音 | ✅ notify-send + 终端响铃 |
+| 唤起 WorkBuddy（`--wake`） | ✅ `open -a` | ✅ `start` | ✅ `xdg-open` |
+| 装常驻巡检（`install-agent`） | ✅ 自动写入 launchd | ⚠️ 需手动 `schtasks` | ⚠️ 需手动 crontab / systemd |
+
+- **引擎零第三方依赖**：纯 Python 标准库，Python 3.8+ 即可跑；数据库以 `mode=ro` 只读打开。
+- 路径全部通过 `os.path.expanduser("~")` 解析，**没有写死任何绝对路径**。
+- 非 macOS 上执行 `install-agent` 不会乱写系统配置，而是打印对应系统的计划任务命令，照抄即可。
+- 唯一的系统外依赖是 **ffmpeg / ffprobe**（配乐审计用），三平台官方均有分发。
+- 本工具包**不访问网络、不调用任何平台 API**；真正的发布动作由各平台的 publisher skill 完成。
+
 ## 已知限制
 
-- **告警是 macOS 专有的**：`afplay` / `say -v Ting-Ting` / `osascript` / `open -a WorkBuddy` 只在 macOS 上有效。
-  Windows / Linux 上它们会静默失效（脚本里用 `DEVNULL` 吞掉了报错，**不会导致崩溃**）；
-  核心的**扫描、判定、补跑逻辑完全跨平台**，非 macOS 用户把告警那几行换成自己的通知方式即可。
 - 巡检点需要人工随档期变化同步维护，本工具包不会自动生成巡检点。
 - 发布脚本若「业务失败仍返回成功」，检测引擎看不出问题——需要脚本侧写 `failure_code` 或返回非 0。
 - 仓库中的账号名、档期、automation id 均为**示例**，请替换为你自己的。

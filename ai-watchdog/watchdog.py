@@ -31,6 +31,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 # ---------------------------------------------------------------- 基础配置
@@ -595,25 +596,62 @@ def should_alert(pkg, cfg):
 
 
 def emit_alert(pkg, cfg):
-    """响铃 + 语音播报（用户要求：任务收尾必须响铃提醒）。"""
+    """响铃 + 语音播报（任务收尾必须响铃提醒）。
+
+    跨平台：macOS 用 afplay/say/osascript；Windows 用 winsound + 系统自带
+    SpeechSynthesizer；其它类 Unix 用 notify-send + 终端响铃。
+    任何分支失败都静默忽略，绝不影响扫描与判定。
+    """
     s = pkg["summary"]
     if s["healthy"] or not should_alert(pkg, cfg):
         return
-    for _ in range(3):
-        subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"],
-                       stderr=subprocess.DEVNULL)
     names = "、".join(i["name"][:12] for i in pkg["issues"][:2])
     more = "等" if len(pkg["issues"]) > 2 else ""
     msg = "监工发现 %d 个自动化任务掉链子了，%s%s，快看看。" % (
         s["issue_count"], names, more)
-    subprocess.run(["say", "-v", "Ting-Ting", msg], stderr=subprocess.DEVNULL)
-    try:
-        subprocess.run([
-            "osascript", "-e",
-            'display notification "%s" with title "AI 监工" sound name "Glass"' % msg
-        ], stderr=subprocess.DEVNULL)
-    except Exception:
-        pass
+
+    if sys.platform == "darwin":
+        for _ in range(3):
+            subprocess.run(["afplay", "/System/Library/Sounds/Glass.aiff"],
+                           stderr=subprocess.DEVNULL)
+        subprocess.run(["say", "-v", "Ting-Ting", msg], stderr=subprocess.DEVNULL)
+        try:
+            subprocess.run([
+                "osascript", "-e",
+                'display notification "%s" with title "AI 监工" sound name "Glass"' % msg
+            ], stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    elif os.name == "nt":
+        try:
+            import winsound
+            for _ in range(3):
+                winsound.MessageBeep(winsound.MB_ICONHAND)
+        except Exception:
+            pass
+        try:
+            # Windows 自带语音合成，无需装任何东西
+            subprocess.run([
+                "powershell", "-NoProfile", "-Command",
+                "Add-Type -AssemblyName System.Speech; "
+                "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                "$s.Speak('%s')" % msg.replace("'", "''")
+            ], stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    else:
+        # Linux / 其它类 Unix
+        try:
+            subprocess.run(["notify-send", "AI 监工", msg],
+                           stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        for _ in range(3):
+            sys.stdout.write("\a")
+            sys.stdout.flush()
+            time.sleep(0.4)
 
 
 def emit_wake(pkg):
@@ -621,7 +659,16 @@ def emit_wake(pkg):
     stalled = [i for i in pkg["issues"] if i["kind"] in ("STALLED", "OVERDUE_ONCE")]
     if not stalled:
         return False
-    subprocess.run(["open", "-a", APP_NAME], stderr=subprocess.DEVNULL)
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["open", "-a", APP_NAME], stderr=subprocess.DEVNULL)
+        elif os.name == "nt":
+            subprocess.run('start "" "%s"' % APP_NAME, shell=True,
+                           stderr=subprocess.DEVNULL)
+        else:
+            subprocess.run(["xdg-open", APP_NAME], stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
     return True
 
 
@@ -724,9 +771,32 @@ PLIST_PATH = os.path.expanduser("~/Library/LaunchAgents/%s.plist" % PLIST_LABEL)
 
 
 def cmd_install_agent(args):
-    """装一个 launchd 常驻巡检：WorkBuddy 没开时也在盯着。"""
+    """装一个常驻巡检：WorkBuddy 没开时也在盯着。
+
+    macOS 走 launchd 自动安装；Windows / Linux 不往系统里塞无效配置，
+    改为打印等价的系统计划任务命令，效果一致。
+    """
     python_bin = sys.executable or "python3"
     script = os.path.abspath(__file__)
+
+    if sys.platform != "darwin":
+        alert_argv = "%s %s scan --alert%s" % (
+            python_bin, script, " --wake" if args.with_wake else "")
+        print("⚠️  install-agent 的自动安装只在 macOS（launchd）上可用。")
+        print("   当前系统请用系统自带的计划任务，要跑的命令完全一样：")
+        print()
+        print("   %s" % alert_argv)
+        print()
+        if os.name == "nt":
+            print("   Windows（任务计划程序，每 %d 分钟一次）：" % int(args.interval))
+            print('     schtasks /Create /TN "ai-watchdog" /SC MINUTE /MO %d /TR "%s"'
+                  % (int(args.interval), alert_argv))
+            print('   之后删除：schtasks /Delete /TN "ai-watchdog" /F')
+        else:
+            print("   Linux（crontab -e 追加一行，每 %d 分钟一次）：" % int(args.interval))
+            print("     */%d * * * * %s" % (int(args.interval), alert_argv))
+            print("   或写一个 systemd oneshot service + timer，ExecStart 同上。")
+        return 2
     os.makedirs(STATE_DIR, exist_ok=True)
     log = os.path.join(STATE_DIR, "agent.log")
 
@@ -780,6 +850,13 @@ def cmd_install_agent(args):
 
 
 def cmd_uninstall_agent(args):
+    if sys.platform != "darwin":
+        print("ℹ️  本命令只负责清理 macOS 的 launchd 常驻巡检。")
+        if os.name == "nt":
+            print('   当前系统请执行：schtasks /Delete /TN "ai-watchdog" /F')
+        else:
+            print("   当前系统请删掉你自己加的 crontab / systemd timer。")
+        return 2
     domain = "gui/%d" % os.getuid()
     subprocess.run(["launchctl", "bootout", "%s/%s" % (domain, PLIST_LABEL)],
                    stderr=subprocess.DEVNULL)
