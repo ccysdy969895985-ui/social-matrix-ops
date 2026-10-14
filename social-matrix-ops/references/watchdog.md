@@ -103,7 +103,7 @@ osascript -e 'get volume settings'
 osascript -e 'set volume output muted false'
 
 for i in 1 2 3; do afplay /System/Library/Sounds/Glass.aiff; sleep 0.4; done
-say -v Ting-Ting "小白，监工发现任务掉链子，已自动补跑，请查看。"
+say -v Ting-Ting "监工发现任务掉链子，已自动补跑，请查看。"
 ```
 
 ## 已知误报模式（务必先核 DB 再动手）
