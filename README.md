@@ -53,7 +53,7 @@
 ## 安装
 
 ```bash
-git clone https://github.com/<your-name>/social-matrix-ops.git ~/social-matrix-ops
+git clone https://github.com/ccysdy969895985-ui/social-matrix-ops.git ~/social-matrix-ops
 
 # 1) 装 Skill
 mkdir -p ~/.workbuddy/skills
@@ -64,6 +64,10 @@ mkdir -p ~/.workbuddy/ai-watchdog
 cp ~/social-matrix-ops/ai-watchdog/*.py ~/.workbuddy/ai-watchdog/
 cp ~/social-matrix-ops/ai-watchdog/README.md ~/.workbuddy/ai-watchdog/
 ```
+
+> 安装只是**往这两个目录里放文件**，不会碰你已有的自动化任务和数据库。
+> 唯一注意：若 `~/.workbuddy/ai-watchdog/` 下已有同名文件（比如你已经装过旧版），
+> `cp` 会直接覆盖 —— 先备份一下再装。
 
 验证装好了：
 
@@ -121,6 +125,9 @@ python3 ~/.workbuddy/ai-watchdog/test_watchdog.py         # 判定逻辑回归�
 
 ## 已知限制
 
+- **告警是 macOS 专有的**：`afplay` / `say -v Ting-Ting` / `osascript` / `open -a WorkBuddy` 只在 macOS 上有效。
+  Windows / Linux 上它们会静默失效（脚本里用 `DEVNULL` 吞掉了报错，**不会导致崩溃**）；
+  核心的**扫描、判定、补跑逻辑完全跨平台**，非 macOS 用户把告警那几行换成自己的通知方式即可。
 - 巡检点需要人工随档期变化同步维护，本工具包不会自动生成巡检点。
 - 发布脚本若「业务失败仍返回成功」，检测引擎看不出问题——需要脚本侧写 `failure_code` 或返回非 0。
 - 仓库中的账号名、档期、automation id 均为**示例**，请替换为你自己的。
